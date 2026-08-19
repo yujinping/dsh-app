@@ -91,7 +91,7 @@ if [[ "$MAKE_DMG" == true ]]; then
     cp -R "$DEST_APP" "$STAGE/"
     ln -s /Applications "$STAGE/Applications"
 
-    DMG_PATH="$SCRIPT_DIR/$NAME-$VERSION.dmg"
+    DMG_PATH="$SCRIPT_DIR/$NAME-$VERSION-universal.dmg"
     rm -f "$DMG_PATH"
     hdiutil create -volname "DeepSeek Harness" -srcfolder "$STAGE" -ov -format UDZO "$DMG_PATH"
     rm -rf "$STAGE"
