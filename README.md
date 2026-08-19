@@ -43,12 +43,14 @@ flowchart TD
 
 ```bash
 cd dsh-app
-bash build-dsh-app.sh 0.1.0          # 仅 .app
-bash build-dsh-app.sh 0.1.0 --dmg    # .app + .dmg
+bash build-dsh-app.sh 0.1.0                 # 仅 .app
+bash build-dsh-app.sh 0.1.0 --dmg           # .app + .dmg
+bash build-dsh-app.sh 0.1.0 --dmg --no-app  # 仅 .dmg（构建后删除 .app）
 ```
 
-- **版本号必传（第一个参数）**：如 `0.1.0`，写入 Info.plist 并用于 DMG 命名；`--dmg` 可选，顺序可调
+- **版本号必传（第一个参数）**：如 `0.1.0`，写入 Info.plist 并用于 DMG 命名；`--dmg` / `--no-app` 可选，顺序可调
 - **`--dmg` 可选**：额外生成 `dsh-app-<版本>.dmg`（内含 App 与 /Applications 链接，拖入即安装）
+- **`--no-app` 可选**：须与 `--dmg` 搭配使用，DMG 生成成功后自动删除 `.app` 产物，避免分发时残留；单独使用会报错退出
 - 构建产物：`dsh-app.app`（Universal 二进制，x86_64 + arm64，最低 macOS 12.0）
 
 ## 项目结构
