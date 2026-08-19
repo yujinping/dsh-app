@@ -101,6 +101,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         let label = NSTextField(labelWithString: "正在启动 DeepSeek Harness…")
         label.font = .systemFont(ofSize: 15)
         label.textColor = .secondaryLabelColor
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 3
         label.translatesAutoresizingMaskIntoConstraints = false
         loadingView.addSubview(label)
         statusLabel = label
@@ -114,6 +116,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         NSLayoutConstraint.activate([
             spinner.centerXAnchor.constraint(equalTo: loadingView.centerXAnchor),
             spinner.centerYAnchor.constraint(equalTo: loadingView.centerYAnchor, constant: -20),
+            label.leadingAnchor.constraint(greaterThanOrEqualTo: loadingView.leadingAnchor, constant: 40),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: loadingView.trailingAnchor, constant: -40),
             label.centerXAnchor.constraint(equalTo: loadingView.centerXAnchor),
             label.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 16),
             retry.centerXAnchor.constraint(equalTo: loadingView.centerXAnchor),
@@ -131,6 +135,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     func startDSH() {
         logToFile("startDSH 调用")
         if isQuitting { return }
+        showLoading("正在检查 Node.js / pnpm…", spinner: true)
+
+        checkEnvironment { ok in
+            guard !self.isQuitting else { return }
+            if !ok {
+                logToFile("环境检测未通过，等待重试")
+                self.loadingSpinner?.stopAnimation(nil)
+                self.loadingSpinner?.isHidden = true
+                self.retryButton?.isHidden = false
+                return
+            }
+            self.launchDSH()
+        }
+    }
+
+    /// 环境就绪后的启动流程（端口判断 + 拉起 pnpm dlx）
+    private func launchDSH() {
+        logToFile("环境检测通过，开始启动")
         showLoading("正在启动 DeepSeek Harness…", spinner: true)
 
         // 端口已被占用（可能残留或手动启动过），直接加载
@@ -147,7 +169,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        proc.arguments = ["pnpx", "@deepseek-ai/dsh", "web"]
+        proc.arguments = ["pnpm", "dlx", "@deepseek-ai/dsh", "web"]
         proc.environment = env
 
         proc.terminationHandler = { _ in
@@ -160,7 +182,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         DispatchQueue.global().async {
             do {
                 try proc.run()
-                logToFile("pnpx 已启动 (PID: \(proc.processIdentifier))")
+                logToFile("pnpm dlx 已启动 (PID: \(proc.processIdentifier))")
 
                 let started = self.waitForPort(timeout: 120)
                 guard !self.isQuitting else { return }
@@ -189,6 +211,63 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         guard let url = URL(string: DSH_URL) else { return }
         let request = URLRequest(url: url)
         webView.load(request)
+    }
+
+    // MARK: 环境检测
+
+    /// 后台检测 node / pnpm，结果写回等待画面，回调返回是否全部就绪
+    func checkEnvironment(completion: @escaping (Bool) -> Void) {
+        DispatchQueue.global().async {
+            let node = self.commandVersion("node")
+            let pnpm = self.commandVersion("pnpm")
+
+            var parts: [String] = []
+            if let v = node {
+                parts.append("✅ Node.js \(v)")
+            } else {
+                parts.append("❌ Node.js 未安装（brew install node）")
+            }
+            if let v = pnpm {
+                parts.append("✅ pnpm \(v)")
+            } else {
+                parts.append("❌ pnpm 未安装（npm install -g pnpm）")
+            }
+            let message = parts.joined(separator: "\n")
+
+            DispatchQueue.main.async {
+                self.statusLabel?.stringValue = message
+                self.statusLabel?.textColor = (node != nil && pnpm != nil) ? .secondaryLabelColor : .systemRed
+                completion(node != nil && pnpm != nil)
+            }
+        }
+    }
+
+    /// 运行 `<cmd> --version`，成功返回版本串（走与启动一致的 PATH）
+    private func commandVersion(_ cmd: String) -> String? {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        task.arguments = [cmd, "--version"]
+
+        var env = ProcessInfo.processInfo.environment
+        let path = env["PATH"] ?? ""
+        let extraPath = "\(NSHomeDirectory())/Library/pnpm/bin:/opt/homebrew/bin:/usr/local/bin"
+        env["PATH"] = "\(extraPath):\(path)"
+        task.environment = env
+
+        task.standardOutput = Pipe()
+        task.standardError = Pipe()
+
+        do {
+            try task.run()
+        } catch {
+            return nil
+        }
+        task.waitUntilExit()
+        guard task.terminationStatus == 0,
+              let data = (task.standardOutput as? Pipe)?.fileHandleForReading.readDataToEndOfFile(),
+              let str = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !str.isEmpty else { return nil }
+        return str
     }
 
     // MARK: 等待画面控制
@@ -259,11 +338,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
 
     func stopDSH() {
         if let proc = dshProcess {
-            logToFile("终止 pnpx 进程 (PID: \(proc.processIdentifier))")
+            logToFile("终止 pnpm dlx 进程 (PID: \(proc.processIdentifier))")
             if proc.isRunning { proc.terminate() }
             dshProcess = nil
         }
-        // 兜底：pnpx 退出后子进程可能残留，按端口把真正监听的 server 停掉
+        // 兜底：pnpm dlx 退出后子进程可能残留，按端口把真正监听的 server 停掉
         if startedDSHProcess {
             killPortOwner()
         }

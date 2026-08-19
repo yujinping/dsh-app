@@ -8,25 +8,33 @@ MIN_MACOS="12.0"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEST_APP="$SCRIPT_DIR/$NAME.app"
 
-# 参数解析：版本号必传（如 0.1.0），--dmg 可选可乱序
+# 参数解析：版本号必传（如 0.1.0），--dmg 可选
+# --no-app 仅在与 --dmg 同时出现时生效：DMG 成功后删除 .app
 MAKE_DMG=false
+NO_APP=false
 VERSION=""
 for arg in "$@"; do
     case "$arg" in
         --dmg) MAKE_DMG=true ;;
+        --no-app) NO_APP=true ;;
         *)
             if [[ "$arg" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
                 VERSION="$arg"
             else
                 echo "无效的版本号: ${arg}（格式如 0.1.0）" >&2
-                echo "用法: $0 <版本号，如 0.1.0> [--dmg]" >&2
+                echo "用法: $0 <版本号，如 0.1.0> [--dmg] [--no-app]" >&2
                 exit 1
             fi
             ;;
     esac
 done
 if [[ -z "$VERSION" ]]; then
-    echo "用法: $0 <版本号，如 0.1.0> [--dmg]" >&2
+    echo "用法: $0 <版本号，如 0.1.0> [--dmg] [--no-app]" >&2
+    exit 1
+fi
+if [[ "$NO_APP" == true && "$MAKE_DMG" != true ]]; then
+    echo "--no-app 必须与 --dmg 同时使用（否则没有产物）" >&2
+    echo "用法: $0 <版本号，如 0.1.0> [--dmg] [--no-app]" >&2
     exit 1
 fi
 
@@ -80,7 +88,9 @@ echo "▸ 清理临时文件…"
 rm -f "/tmp/$NAME" "/tmp/$NAME-x86_64" "/tmp/$NAME-arm64" "/tmp/$NAME.icns"
 
 echo ""
-echo "✅ 完成！App 已生成：$DEST_APP"
+if [[ "$NO_APP" != true ]]; then
+    echo "✅ 完成！App 已生成：$DEST_APP"
+fi
 
 # ─── DMG ────────────────────────────────────────────────────
 if [[ "$MAKE_DMG" == true ]]; then
@@ -98,6 +108,12 @@ if [[ "$MAKE_DMG" == true ]]; then
 
     echo ""
     echo "✅ DMG 已生成：$DMG_PATH"
+
+    if [[ "$NO_APP" == true ]]; then
+        echo "▸ 按 --no-app 选项删除 .app…"
+        rm -rf "$DEST_APP"
+        echo "  ✅ 已删除：$DEST_APP"
+    fi
 fi
 
 echo "双击运行即可。关闭窗口 = 终止 dsh。"
