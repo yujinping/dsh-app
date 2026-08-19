@@ -3,15 +3,42 @@ set -euo pipefail
 
 NAME="dsh-app"
 SOURCE="dsh-app.swift"
-DEST_APP="$(dirname "$0")/$NAME.app"
+MIN_MACOS="12.0"
 
-echo "▸ 生成图标…"
-swift "$(dirname "$0")/gen-icon.swift"
-iconutil -c icns /tmp/dsh-icon.iconset -o "/tmp/$NAME.icns"
-echo "  ✅ .icns 生成完成 ($(ls -lh "/tmp/$NAME.icns" | awk '{print $5}'))"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DEST_APP="$SCRIPT_DIR/$NAME.app"
 
-echo "▸ 编译 Swift 源码…"
-swiftc -O -o "/tmp/$NAME" "$SOURCE"
+# 参数解析：--dmg 可选，版本号必传（支持 v0.1.0 或 0.1.0）
+MAKE_DMG=false
+VERSION=""
+for arg in "$@"; do
+    case "$arg" in
+        --dmg) MAKE_DMG=true ;;
+        *)
+            if [[ "$arg" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                VERSION="${arg#v}"
+            else
+                echo "无效的版本号: ${arg}（格式如 v0.1.0）" >&2
+                echo "用法: $0 [--dmg] <版本号，如 v0.1.0>" >&2
+                exit 1
+            fi
+            ;;
+    esac
+done
+if [[ -z "$VERSION" ]]; then
+    echo "用法: $0 [--dmg] <版本号，如 v0.1.0>" >&2
+    exit 1
+fi
+
+echo "▸ 使用 icon.icns…"
+cp "$SCRIPT_DIR/icon.icns" "/tmp/$NAME.icns"
+echo "  ✅ 复制完成 ($(ls -lh "/tmp/$NAME.icns" | awk '{print $5}'))"
+
+echo "▸ 编译 Swift 源码（Universal: x86_64 + arm64，最低 macOS ${MIN_MACOS}）…"
+swiftc -O -target "x86_64-apple-macosx${MIN_MACOS}" -o "/tmp/$NAME-x86_64" "$SOURCE"
+swiftc -O -target "arm64-apple-macosx${MIN_MACOS}" -o "/tmp/$NAME-arm64" "$SOURCE"
+lipo -create "/tmp/$NAME-x86_64" "/tmp/$NAME-arm64" -output "/tmp/$NAME"
+echo "  ✅ Universal 二进制生成完成: $(lipo -info "/tmp/$NAME" | sed 's/^[^:]*: //')"
 
 echo "▸ 创建 .app  bundle…"
 rm -rf "$DEST_APP"
@@ -33,8 +60,10 @@ cat > "$DEST_APP/Contents/Info.plist" <<EOF
     <string>com.deepseek.harness-launcher</string>
     <key>CFBundleName</key>
     <string>DeepSeek Harness</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$VERSION</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$VERSION</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleIconFile</key>
@@ -48,11 +77,27 @@ cat > "$DEST_APP/Contents/Info.plist" <<EOF
 EOF
 
 echo "▸ 清理临时文件…"
-rm -f "/tmp/$NAME" "/tmp/$NAME.icns"
-rm -rf /tmp/dsh-icon.iconset
+rm -f "/tmp/$NAME" "/tmp/$NAME-x86_64" "/tmp/$NAME-arm64" "/tmp/$NAME.icns"
 
 echo ""
-echo "✅ 完成！App 已生成："
-echo "   $DEST_APP"
-echo ""
+echo "✅ 完成！App 已生成：$DEST_APP"
+
+# ─── DMG ────────────────────────────────────────────────────
+if [[ "$MAKE_DMG" == true ]]; then
+    echo "▸ 生成 DMG…"
+    STAGE="/tmp/$NAME-dmg"
+    rm -rf "$STAGE"
+    mkdir -p "$STAGE"
+    cp -R "$DEST_APP" "$STAGE/"
+    ln -s /Applications "$STAGE/Applications"
+
+    DMG_PATH="$SCRIPT_DIR/$NAME-$VERSION.dmg"
+    rm -f "$DMG_PATH"
+    hdiutil create -volname "DeepSeek Harness" -srcfolder "$STAGE" -ov -format UDZO "$DMG_PATH"
+    rm -rf "$STAGE"
+
+    echo ""
+    echo "✅ DMG 已生成：$DMG_PATH"
+fi
+
 echo "双击运行即可。关闭窗口 = 终止 dsh。"
