@@ -32,21 +32,22 @@ flowchart TD
 
 | 依赖 | 说明 |
 |------|------|
-| macOS 12+ | 构建目标为 macOS 12.0 起的通用二进制 |
+| macOS 12+ | 构建目标为 macOS 12.0 起的通用二进制；**推荐 macOS 26**（见下方说明） |
+| Node.js ≥ 20 | `@deepseek-ai/dsh` 运行时依赖 Node；推荐 **24 LTS**（当前 LTS，支持至 2028 年） |
+| pnpm ≥ 10 | 提供 `pnpx` 命令；推荐 **11.x**；安装：`brew install pnpm` 或 `npm install -g pnpm` |
 | Xcode Command Line Tools | 提供 `swiftc`、`lipo`、`hdiutil`，运行 `xcode-select --install` 安装 |
-| pnpm | 提供 `pnpx` 命令；`brew install pnpm` 或 `npm install -g pnpm` 安装 |
 
-> 注意：WKWebView 渲染能力随用户系统版本而定（使用系统自带的 WebKit 引擎，与 Safari 同源）。macOS 12 对应 Safari 15 的引擎，最新系统才有 WebGPU 等新特性。
+> **推荐使用最新的 macOS 26**：App 内嵌的 WKWebView 使用**系统自带的 WebKit 引擎**（与 Safari 同源），渲染能力随系统版本走——macOS 12 对应 Safari 15 的引擎，只有新版系统才具备 WebGPU、容器查询等现代 Web 能力。应用本身兼容 macOS 12+，但在 macOS 26 上页面的 Web 能力最完整、体验最佳。
 
 ## 构建
 
 ```bash
 cd dsh-app
-bash build-dsh-app.sh v0.1.0          # 仅 .app
-bash build-dsh-app.sh --dmg v0.1.0    # .app + .dmg
+bash build-dsh-app.sh 0.1.0          # 仅 .app
+bash build-dsh-app.sh 0.1.0 --dmg    # .app + .dmg
 ```
 
-- **版本号必传**：接受 `v0.1.0` 或 `0.1.0`（`v` 前缀可省略），写入 Info.plist 并用于 DMG 命名
+- **版本号必传（第一个参数）**：如 `0.1.0`，写入 Info.plist 并用于 DMG 命名；`--dmg` 可选，顺序可调
 - **`--dmg` 可选**：额外生成 `dsh-app-<版本>.dmg`（内含 App 与 /Applications 链接，拖入即安装）
 - 构建产物：`dsh-app.app`（Universal 二进制，x86_64 + arm64，最低 macOS 12.0）
 
@@ -75,7 +76,7 @@ dsh-app/
 
 **Q：点击 App 没反应？**
 
-查看日志：`tail -f /tmp/dsh-launcher.log`。常见原因：`pnpm` 未安装、首次下载 `@deepseek-ai/dsh` 较慢（超时 120 秒）、端口被其他程序占用。
+查看日志：`tail -f /tmp/dsh-launcher.log`。常见原因：`Node.js` / `pnpm` 未安装（版本要求见上方「环境要求」）、首次下载 `@deepseek-ai/dsh` 较慢（超时 120 秒）、端口被其他程序占用。
 
 **Q：端口 3080 被其他程序占用了？**
 

@@ -8,25 +8,25 @@ MIN_MACOS="12.0"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEST_APP="$SCRIPT_DIR/$NAME.app"
 
-# 参数解析：--dmg 可选，版本号必传（支持 v0.1.0 或 0.1.0）
+# 参数解析：版本号必传（如 0.1.0），--dmg 可选可乱序
 MAKE_DMG=false
 VERSION=""
 for arg in "$@"; do
     case "$arg" in
         --dmg) MAKE_DMG=true ;;
         *)
-            if [[ "$arg" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                VERSION="${arg#v}"
+            if [[ "$arg" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                VERSION="$arg"
             else
-                echo "无效的版本号: ${arg}（格式如 v0.1.0）" >&2
-                echo "用法: $0 [--dmg] <版本号，如 v0.1.0>" >&2
+                echo "无效的版本号: ${arg}（格式如 0.1.0）" >&2
+                echo "用法: $0 <版本号，如 0.1.0> [--dmg]" >&2
                 exit 1
             fi
             ;;
     esac
 done
 if [[ -z "$VERSION" ]]; then
-    echo "用法: $0 [--dmg] <版本号，如 v0.1.0>" >&2
+    echo "用法: $0 <版本号，如 0.1.0> [--dmg]" >&2
     exit 1
 fi
 
