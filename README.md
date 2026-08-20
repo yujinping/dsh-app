@@ -1,4 +1,4 @@
-# DeepSeek Harness Launcher
+# dsh-app — DeepSeek Harness Launcher
 
 macOS 原生启动器：一键启动 DeepSeek Harness 本地服务（`dsh`），并以内嵌 WKWebView 呈现界面；退出 App 即自动终止服务，不留后台残留进程。
 
@@ -83,7 +83,7 @@ dsh-app/
 | 日志路径 | `dsh-app.swift` 中 `LOG_PATH` | `/tmp/dsh-launcher.log`（时间戳为北京时间） |
 | PATH 补充 | `dsh-app.swift` 中 `startDSH()` | `~/Library/pnpm/bin:/opt/homebrew/bin:/usr/local/bin` |
 | 最低系统 | `build-dsh-app.sh` 中 `MIN_MACOS` | `12.0` |
-| App 标识 | `build-dsh-app.sh` 生成的 Info.plist | `com.deepseek.harness-launcher` |
+| App 标识 | `build-dsh-app.sh` 生成的 Info.plist | `com.deepseek.dsh-app` |
 
 ## 常见问题
 

@@ -81,7 +81,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
                           backing: .buffered,
                           defer: false)
-        window.title = "DeepSeek Harness"
+        window.title = "dsh-app"
         window.center()
         window.setFrameAutosaveName("DSHMainWindow")
         window.isReleasedWhenClosed = false
@@ -398,7 +398,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         hideLoading()
-        window.title = webView.title ?? "DeepSeek Harness"
+        window.title = webView.title ?? "dsh-app"
         let url = webView.url?.absoluteString ?? "未知"
         logToFile("页面加载完成: \(url) (\(webView.title ?? "无标题"))")
         // 探测注入桥标记，区分「脚本未注入」与「消息未送达」
@@ -498,11 +498,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         let appItem = NSMenuItem()
         mainMenu.addItem(appItem)
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "关于 DeepSeek Harness",
+        appMenu.addItem(withTitle: "关于 dsh-app",
                         action: #selector(showAbout(_:)),
                         keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "退出 DeepSeek Harness",
+        appMenu.addItem(withTitle: "退出 dsh-app",
                         action: #selector(NSApplication.terminate(_:)),
                         keyEquivalent: "q")
         appItem.submenu = appMenu
@@ -735,7 +735,7 @@ final class AboutPanelController: NSObject {
         iconView.layer?.masksToBounds = true
 
         // 应用标题
-        let titleLabel = NSTextField(labelWithString: "DeepSeek Harness")
+        let titleLabel = NSTextField(labelWithString: "dsh-app")
         titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.alignment = .center

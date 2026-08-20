@@ -123,9 +123,11 @@ cat > "$DEST_APP/Contents/Info.plist" <<EOF
     <key>CFBundleExecutable</key>
     <string>$NAME</string>
     <key>CFBundleIdentifier</key>
-    <string>com.deepseek.harness-launcher</string>
+    <string>com.deepseek.dsh-app</string>
     <key>CFBundleName</key>
-    <string>DeepSeek Harness</string>
+    <string>dsh-app</string>
+    <key>CFBundleDisplayName</key>
+    <string>dsh-app</string>
     <key>CFBundleShortVersionString</key>
     <string>$VERSION</string>
     <key>CFBundleVersion</key>
@@ -162,7 +164,7 @@ if [[ "$MAKE_DMG" == true ]]; then
     mkdir -p "$SCRIPT_DIR/dist"   # DMG 统一输出到 dist/
     DMG_PATH="$SCRIPT_DIR/dist/$NAME-$VERSION-$DMG_ARCH.dmg"
     rm -f "$DMG_PATH"
-    hdiutil create -volname "DeepSeek Harness" -srcfolder "$STAGE" -ov -format UDZO "$DMG_PATH"
+    hdiutil create -volname "dsh-app" -srcfolder "$STAGE" -ov -format UDZO "$DMG_PATH"
     rm -rf "$STAGE"
 
     echo ""
