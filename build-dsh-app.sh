@@ -19,7 +19,7 @@ usage() {
   <版本号>            如 0.1.0，写入 Info.plist 并用于 DMG 命名
 
 选项:
-  --dmg               额外生成 DMG（内含 App 与 /Applications 链接）
+  --dmg               额外生成 DMG 到 dist/（内含 App 与 /Applications 链接）
   --no-app            仅在与 --dmg 同时出现时生效：DMG 成功后删除 .app
   --arch <架构>       只编译指定架构（x86_64 或 arm64）；不传则构建
                       Universal 二进制，DMG 命名为 -universal
@@ -107,9 +107,12 @@ echo "▸ 创建 .app  bundle…"
 rm -rf "$DEST_APP"
 mkdir -p "$DEST_APP/Contents/MacOS"
 mkdir -p "$DEST_APP/Contents/Resources"
+mkdir -p "$DEST_APP/Contents/Resources/js"
 
 cp "/tmp/$NAME" "$DEST_APP/Contents/MacOS/$NAME"
 cp "/tmp/$NAME.icns" "$DEST_APP/Contents/Resources/$NAME.icns"
+cp "$SCRIPT_DIR/js/polyfills.js" "$DEST_APP/Contents/Resources/js/polyfills.js"
+cp "$SCRIPT_DIR/js/console-bridge.js" "$DEST_APP/Contents/Resources/js/console-bridge.js"
 
 # Info.plist
 cat > "$DEST_APP/Contents/Info.plist" <<EOF
@@ -156,7 +159,8 @@ if [[ "$MAKE_DMG" == true ]]; then
     cp -R "$DEST_APP" "$STAGE/"
     ln -s /Applications "$STAGE/Applications"
 
-    DMG_PATH="$SCRIPT_DIR/$NAME-$VERSION-$DMG_ARCH.dmg"
+    mkdir -p "$SCRIPT_DIR/dist"   # DMG 统一输出到 dist/
+    DMG_PATH="$SCRIPT_DIR/dist/$NAME-$VERSION-$DMG_ARCH.dmg"
     rm -f "$DMG_PATH"
     hdiutil create -volname "DeepSeek Harness" -srcfolder "$STAGE" -ov -format UDZO "$DMG_PATH"
     rm -rf "$STAGE"

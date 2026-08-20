@@ -53,9 +53,9 @@ bash build-dsh-app.sh                       # 显示帮助信息
 ```
 
 - **版本号必传（第一个参数）**：如 `0.1.0`，写入 Info.plist 并用于 DMG 命名；`--dmg` / `--no-app` / `--arch` 可选，顺序可调
-- **`--dmg` 可选**：额外生成 `dsh-app-<版本>.dmg`（内含 App 与 /Applications 链接，拖入即安装）
+- **`--dmg` 可选**：额外生成 `dist/dsh-app-<版本>.dmg`（内含 App 与 /Applications 链接，拖入即安装）
 - **`--no-app` 可选**：须与 `--dmg` 搭配使用，DMG 生成成功后自动删除 `.app` 产物，避免分发时残留；单独使用会报错退出
-- **`--arch` 可选**：指定单一架构 `x86_64` 或 `arm64`，只编译对应二进制，DMG 命名为 `dsh-app-<版本>-<架构>.dmg`；不传则构建 Universal 二进制，DMG 命名为 `-universal`
+- **`--arch` 可选**：指定单一架构 `x86_64` 或 `arm64`，只编译对应二进制，DMG 输出到 `dist/` 并命名为 `dist/dsh-app-<版本>-<架构>.dmg`；不传则构建 Universal 二进制，命名为 `dist/dsh-app-<版本>-universal.dmg`
 - **无参数运行**：仅显示帮助信息，不进行构建
 - 构建产物：`dsh-app.app`（默认 Universal 二进制，x86_64 + arm64，最低 macOS 12.0）
 
@@ -65,8 +65,12 @@ bash build-dsh-app.sh                       # 显示帮助信息
 dsh-app/
 ├── dsh-app.swift      # 主程序（WKWebView 内嵌窗口、进程管理与退出清理）
 ├── build-dsh-app.sh   # 一键构建脚本（图标 → 双架构编译 → bundle → 可选 DMG）
+├── js/
+│   ├── polyfills.js       # Web API polyfill（编译时打入 .app，注入 WebView 供旧版 WebKit 兜底）
+│   └── console-bridge.js  # 页面 console 转发桥（页面内 JS 日志/报错 → App 日志，便于排查）
 ├── icon.icns          # 应用图标
-└── dsh-app.app/       # 构建产物（运行脚本生成，已 gitignore）
+├── dsh-app.app/       # 构建产物（运行脚本生成，已 gitignore）
+└── dist/              # DMG 构建产物（已 gitignore）
 ```
 
 ## 配置说明
