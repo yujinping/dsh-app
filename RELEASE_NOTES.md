@@ -1,4 +1,4 @@
-# DeepSeek Harness Launcher v0.2.0
+# dsh-app v0.2.1
 
 **首个公开发布版本。**
 
@@ -27,7 +27,7 @@ DeepSeek Harness（dsh）是在本地运行的 AI 编程助手工作台。本启
 
 ## 安装
 
-1. 下载 DMG：`dsh-app-0.2.0-universal.dmg`（Intel 与 Apple Silicon 通用，无需区分架构）
+1. 下载 DMG：`dsh-app-0.2.1-universal.dmg`（Intel 与 Apple Silicon 通用，无需区分架构）
 2. 拖入 `/Applications`
 3. 双击运行，首次启动会自动下载并启动 dsh 服务，请保持网络畅通
 
