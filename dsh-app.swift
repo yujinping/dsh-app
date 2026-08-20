@@ -688,20 +688,34 @@ final class AboutPanelController: NSObject {
         self.launcherVersion = launcherVersion
         versionLabel = NSTextField(labelWithString: "v\(launcherVersion)(dsh v获取中…)")
 
+        // 毛玻璃视图：材质渲染不随自身 layer 的 masksToBounds 裁剪（macOS 12 上会画出直角），
+        // 因此圆角+裁剪放到外层普通容器视图上，由父层裁剪子视图（含毛玻璃材质）保证圆角边框
         let content = NSVisualEffectView()
         content.material = .popover
         content.blendingMode = .behindWindow
         content.state = .active
-        content.wantsLayer = true
-        content.layer?.cornerRadius = 14
-        content.layer?.masksToBounds = true
+
+        // 普通容器视图承载圆角裁剪，作为面板 contentView；毛玻璃视图填满容器
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.cornerRadius = 14
+        container.layer?.cornerCurve = .continuous
+        container.layer?.masksToBounds = true
 
         let panelSize = NSSize(width: 320, height: 240)
         panel = NSPanel(contentRect: NSRect(origin: .zero, size: panelSize),
                         styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered,
                         defer: false)
-        panel.contentView = content
+        panel.contentView = container
+        container.addSubview(content)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            content.topAnchor.constraint(equalTo: container.topAnchor),
+            content.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
