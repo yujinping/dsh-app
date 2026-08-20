@@ -4,8 +4,17 @@ import WebKit
 // ─── 日志 ───────────────────────────────────────────────────
 let LOG_PATH = "/tmp/dsh-launcher.log"
 
+// 统一使用北京时间（Asia/Shanghai），不随系统时区变化
+let LOG_FORMATTER: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+    f.timeZone = TimeZone(identifier: "Asia/Shanghai")
+    f.locale = Locale(identifier: "en_US_POSIX")
+    return f
+}()
+
 func logToFile(_ msg: String) {
-    let line = "[\(Date())] \(msg)\n"
+    let line = "[\(LOG_FORMATTER.string(from: Date()))] \(msg)\n"
     if let data = line.data(using: .utf8) {
         if FileManager.default.fileExists(atPath: LOG_PATH) {
             if let handle = try? FileHandle(forWritingTo: URL(fileURLWithPath: LOG_PATH)) {
@@ -20,7 +29,7 @@ func logToFile(_ msg: String) {
 }
 
 // ─── App Delegate ───────────────────────────────────────────
-class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKDownloadDelegate {
 
     let DSH_URL = "http://127.0.0.1:3080"
 
@@ -82,6 +91,33 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         // 内嵌 WebView：随窗口伸缩
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()  // 持久化存储，保留登录态等
+
+        // 注入 Web API polyfill（资源文件 polyfills.js，旧版 WebKit 兜底；新增 polyfill 无需改 Swift）
+        // 资源缺失时降级为不注入：新版 macOS 本身支持这些 API，不影响正常使用
+        if let polyfillURL = Bundle.main.url(forResource: "polyfills", withExtension: "js", subdirectory: "js"),
+           let polyfillJS = try? String(contentsOf: polyfillURL, encoding: .utf8) {
+            config.userContentController.addUserScript(
+                WKUserScript(source: polyfillJS,
+                             injectionTime: .atDocumentStart,
+                             forMainFrameOnly: false)
+            )
+        } else {
+            logToFile("警告: 未找到 polyfills.js 资源，跳过 polyfill 注入")
+        }
+
+        // 注入页面 console 转发桥（console-bridge.js）：页面内 JS 日志/报错写入 App 日志，方便排查
+        if let bridgeURL = Bundle.main.url(forResource: "console-bridge", withExtension: "js", subdirectory: "js"),
+           let bridgeJS = try? String(contentsOf: bridgeURL, encoding: .utf8) {
+            config.userContentController.addUserScript(
+                WKUserScript(source: bridgeJS,
+                             injectionTime: .atDocumentStart,
+                             forMainFrameOnly: false)
+            )
+            config.userContentController.add(self, name: "dshConsole")
+        } else {
+            logToFile("警告: 未找到 console-bridge.js 资源，跳过页面日志转发")
+        }
+
         webView = WKWebView(frame: container.bounds, configuration: config)
         webView.autoresizingMask = [.width, .height]
         webView.navigationDelegate = self
@@ -296,18 +332,96 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         startDSH()
     }
 
+    // MARK: 下载支持（a[download] / Content-Disposition: attachment → WKDownload）
+    // WKWebView 默认不处理 <a download>，需要原生 WKDownload 支持才能把 ZIP 保存到磁盘
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        let url = navigationResponse.response.url?.absoluteString ?? ""
+        var isDownload = false
+        if let http = navigationResponse.response as? HTTPURLResponse {
+            let cd = http.value(forHTTPHeaderField: "Content-Disposition")?.lowercased() ?? ""
+            let ct = http.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+            isDownload = cd.contains("attachment") || ct.contains("zip")
+        }
+        // Session 导出下载走 /api/session.export（响应头可能不带 attachment），URL 兜底判断
+        if isDownload || url.contains("/api/session.export") {
+            logToFile("开始下载: \(url)")
+            decisionHandler(.download)
+            return
+        }
+        decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    // MARK: WKDownloadDelegate
+
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
+                  suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+        let dir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let dest = dir.appendingPathComponent(suggestedFilename)
+        logToFile("下载保存到: \(dest.path)")
+        completionHandler(dest)
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        logToFile("下载完成: \(download.originalRequest?.url?.absoluteString ?? "未知")")
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        logToFile("下载失败: \(error.localizedDescription)")
+    }
+
+    // MARK: WKScriptMessageHandler（页面 console → App 日志）
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "dshConsole",
+              let payload = message.body as? [String: Any],
+              let level = payload["level"] as? String,
+              let text = payload["text"] as? String else { return }
+        logToFile("页面[\(level)]: \(text)")
+    }
+
     // MARK: WKNavigationDelegate
+
+    /// 下载导航（a[download] 被转为 WKDownload 后）会触发
+    /// 「Frame load interrupted」（WebKitErrorDomain 102），这是策略变更的正常表现，
+    /// 不应当作页面加载失败处理（否则会弹错误遮罩挡住页面与下载成功提示）
+    private func isDownloadInterruptedError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == "WebKitErrorDomain" && nsError.code == 102
+    }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         hideLoading()
         window.title = webView.title ?? "DeepSeek Harness"
+        let url = webView.url?.absoluteString ?? "未知"
+        logToFile("页面加载完成: \(url) (\(webView.title ?? "无标题"))")
+        // 探测注入桥标记，区分「脚本未注入」与「消息未送达」
+        webView.evaluateJavaScript("typeof window.__dshBridgeLoaded !== 'undefined' && window.__dshBridgeLoaded") { result, error in
+            if let error = error {
+                logToFile("页面注入探测失败: \(error.localizedDescription)")
+            } else if let loaded = result as? Bool {
+                logToFile("页面注入状态: console-bridge \(loaded ? "已加载" : "未加载")")
+            } else {
+                logToFile("页面注入状态: 未知 (\(String(describing: result)))")
+            }
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        if isDownloadInterruptedError(error) { return }
+        logToFile("页面导航失败: \(error.localizedDescription)")
         showLoading("加载失败：\(error.localizedDescription)", spinner: false)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        if isDownloadInterruptedError(error) { return }
+        logToFile("页面加载失败: \(error.localizedDescription)")
         showLoading("加载失败：\(error.localizedDescription)", spinner: false)
     }
 

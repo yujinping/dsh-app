@@ -11,7 +11,7 @@ macOS 原生启动器：一键启动 DeepSeek Harness 本地服务（`dsh`），
 - **端口冲突兜底**：检测到 `3080` 已被占用时直接加载页面，不重复启动服务
 - **站外链接外投**：`127.0.0.1` 之外的链接交给系统默认浏览器打开，站内保持内嵌
 - **通用二进制**：直接支持 Intel (x86_64) 与 Apple Silicon (arm64)
-- **完整日志**：所有运行事件写入 `/tmp/dsh-launcher.log`，方便排查
+- **完整日志**：所有运行事件写入 `/tmp/dsh-launcher.log`，方便排查；**页面内 JS 的 console 日志与报错也会转发到该日志**（通过 console-bridge.js 注入）
 - **实时版本**：「关于」对话框显示 **dsh 启动后实际运行**的版本（启动成功时异步预取一次并缓存，多次打开不重复请求，避免版本漂移）
 
 ## 工作原理
@@ -76,7 +76,7 @@ dsh-app/
 | 服务地址 | `dsh-app.swift` 中 `DSH_URL` | `http://127.0.0.1:3080` |
 | 服务启动命令 | `dsh-app.swift` 中 `launchDSH()` | `pnpm dlx @deepseek-ai/dsh web` |
 | About 版本获取 | `dsh-app.swift` 中 `prefetchDSHVersion()` | dsh 启动成功后异步执行 `pnpm dlx @deepseek-ai/dsh --version` 一次并缓存（超时 20s，失败缓存为“未知”） |
-| 日志路径 | `dsh-app.swift` 中 `LOG_PATH` | `/tmp/dsh-launcher.log` |
+| 日志路径 | `dsh-app.swift` 中 `LOG_PATH` | `/tmp/dsh-launcher.log`（时间戳为北京时间） |
 | PATH 补充 | `dsh-app.swift` 中 `startDSH()` | `~/Library/pnpm/bin:/opt/homebrew/bin:/usr/local/bin` |
 | 最低系统 | `build-dsh-app.sh` 中 `MIN_MACOS` | `12.0` |
 | App 标识 | `build-dsh-app.sh` 生成的 Info.plist | `com.deepseek.harness-launcher` |
