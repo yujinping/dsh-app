@@ -12,6 +12,7 @@ macOS 原生启动器：一键启动 DeepSeek Harness 本地服务（`dsh`），
 - **站外链接外投**：`127.0.0.1` 之外的链接交给系统默认浏览器打开，站内保持内嵌
 - **通用二进制**：直接支持 Intel (x86_64) 与 Apple Silicon (arm64)
 - **完整日志**：所有运行事件写入 `/tmp/dsh-launcher.log`，方便排查
+- **实时版本**：「关于」对话框显示 **dsh 启动后实际运行**的版本（启动成功时异步预取一次并缓存，多次打开不重复请求，避免版本漂移）
 
 ## 工作原理
 
@@ -43,15 +44,20 @@ flowchart TD
 
 ```bash
 cd dsh-app
-bash build-dsh-app.sh 0.1.0                 # 仅 .app
-bash build-dsh-app.sh 0.1.0 --dmg           # .app + .dmg
-bash build-dsh-app.sh 0.1.0 --dmg --no-app  # 仅 .dmg（构建后删除 .app）
+bash build-dsh-app.sh 0.1.0                 # 仅 .app（Universal）
+bash build-dsh-app.sh 0.1.0 --dmg           # .app + Universal DMG
+bash build-dsh-app.sh 0.1.0 --arch arm64    # 仅 arm64 .app
+bash build-dsh-app.sh 0.1.0 --arch x86_64 --dmg  # x86_64 .app + DMG
+bash build-dsh-app.sh 0.1.0 --dmg --no-app  # 仅 Universal DMG（构建后删除 .app）
+bash build-dsh-app.sh                       # 显示帮助信息
 ```
 
-- **版本号必传（第一个参数）**：如 `0.1.0`，写入 Info.plist 并用于 DMG 命名；`--dmg` / `--no-app` 可选，顺序可调
+- **版本号必传（第一个参数）**：如 `0.1.0`，写入 Info.plist 并用于 DMG 命名；`--dmg` / `--no-app` / `--arch` 可选，顺序可调
 - **`--dmg` 可选**：额外生成 `dsh-app-<版本>.dmg`（内含 App 与 /Applications 链接，拖入即安装）
 - **`--no-app` 可选**：须与 `--dmg` 搭配使用，DMG 生成成功后自动删除 `.app` 产物，避免分发时残留；单独使用会报错退出
-- 构建产物：`dsh-app.app`（Universal 二进制，x86_64 + arm64，最低 macOS 12.0）
+- **`--arch` 可选**：指定单一架构 `x86_64` 或 `arm64`，只编译对应二进制，DMG 命名为 `dsh-app-<版本>-<架构>.dmg`；不传则构建 Universal 二进制，DMG 命名为 `-universal`
+- **无参数运行**：仅显示帮助信息，不进行构建
+- 构建产物：`dsh-app.app`（默认 Universal 二进制，x86_64 + arm64，最低 macOS 12.0）
 
 ## 项目结构
 
@@ -69,6 +75,7 @@ dsh-app/
 |----|------|--------|
 | 服务地址 | `dsh-app.swift` 中 `DSH_URL` | `http://127.0.0.1:3080` |
 | 服务启动命令 | `dsh-app.swift` 中 `launchDSH()` | `pnpm dlx @deepseek-ai/dsh web` |
+| About 版本获取 | `dsh-app.swift` 中 `prefetchDSHVersion()` | dsh 启动成功后异步执行 `pnpm dlx @deepseek-ai/dsh --version` 一次并缓存（超时 20s，失败缓存为“未知”） |
 | 日志路径 | `dsh-app.swift` 中 `LOG_PATH` | `/tmp/dsh-launcher.log` |
 | PATH 补充 | `dsh-app.swift` 中 `startDSH()` | `~/Library/pnpm/bin:/opt/homebrew/bin:/usr/local/bin` |
 | 最低系统 | `build-dsh-app.sh` 中 `MIN_MACOS` | `12.0` |

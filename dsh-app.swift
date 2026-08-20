@@ -33,6 +33,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     var statusLabel: NSTextField!
     var retryButton: NSButton!
     var isQuitting = false
+    var cachedDSHVersion: String?   // dsh 启动成功后异步预取的版本，缓存供 About 使用
+    private var isPrefetchingVersion = false  // 防止版本预取被并发触发多次
+    private var aboutPanelController: AboutPanelController?  // 持有 About 面板防止释放
 
     // MARK: 启动
 
@@ -159,6 +162,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         if isPortOpen() {
             logToFile("端口 3080 已被占用，直接加载")
             loadDSH()
+            prefetchDSHVersion()
             return
         }
 
@@ -191,6 +195,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
                     if started {
                         logToFile("端口就绪，加载页面")
                         self.loadDSH()
+                        self.prefetchDSHVersion()
                     } else {
                         logToFile("端口等待超时")
                         self.showLoading("启动超时（120s），请检查网络后重试", spinner: false)
@@ -380,7 +385,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         mainMenu.addItem(appItem)
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "关于 DeepSeek Harness",
-                        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+                        action: #selector(showAbout(_:)),
                         keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出 DeepSeek Harness",
@@ -410,6 +415,97 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         windowItem.submenu = windowMenu
 
         NSApp.mainMenu = mainMenu
+    }
+
+    /// 自定义“关于”对话框：主显示实际运行的 DeepSeek Harness 版本，辅显示启动器版本
+    /// （dsh 版本为启动成功后异步预取并缓存的版本，避免每次打开对话框重复请求导致版本漂移）
+    @objc func showAbout(_ sender: Any?) {
+        let launcherVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
+
+        let controller = AboutPanelController(launcherVersion: launcherVersion)
+        aboutPanelController = controller
+        controller.show()
+
+        if let version = cachedDSHVersion {
+            controller.setDSHVersion(version)
+        } else {
+            prefetchDSHVersion()
+            // 后台轮询等待版本预取完成，就绪后刷新面板
+            DispatchQueue.global(qos: .userInitiated).async { [weak self, weak controller] in
+                guard let self = self, let controller = controller else { return }
+                let deadline = Date().addingTimeInterval(20)
+                while self.cachedDSHVersion == nil && Date() < deadline {
+                    Thread.sleep(forTimeInterval: 0.3)
+                }
+                DispatchQueue.main.async {
+                    controller.setDSHVersion(self.cachedDSHVersion ?? "未知")
+                    logToFile("About 显示 dsh 版本: \(self.cachedDSHVersion ?? "未知")")
+                }
+            }
+        }
+    }
+
+    /// 在 dsh 启动成功后异步预取一次版本并缓存，之后 About 直接读缓存不再请求
+    /// 同时保证只执行一次：已有缓存或正在获取时不重复触发
+    func prefetchDSHVersion() {
+        if cachedDSHVersion != nil { return }
+        if isPrefetchingVersion { return }
+        isPrefetchingVersion = true
+
+        dshRuntimeVersion { [weak self] version in
+            guard let self = self else { return }
+            self.cachedDSHVersion = version ?? "未知"
+            self.isPrefetchingVersion = false
+            logToFile("已预取 dsh 版本: \(self.cachedDSHVersion ?? "未知")")
+        }
+    }
+
+    /// 运行 `pnpm dlx @deepseek-ai/dsh --version` 获取实际运行的 dsh 版本（与启动走同一环境）
+    private func dshRuntimeVersion(completion: @escaping (String?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var env = ProcessInfo.processInfo.environment
+            let path = env["PATH"] ?? ""
+            let extraPath = "\(NSHomeDirectory())/Library/pnpm/bin:/opt/homebrew/bin:/usr/local/bin"
+            env["PATH"] = "\(extraPath):\(path)"
+
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            proc.arguments = ["pnpm", "dlx", "@deepseek-ai/dsh", "--version"]
+            proc.environment = env
+
+            let out = Pipe()
+            proc.standardOutput = out
+            proc.standardError = Pipe()
+
+            do {
+                try proc.run()
+            } catch {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+
+            // 超时保护：首次 dlx 可能下载较慢，20 秒后强制终止
+            DispatchQueue.global().asyncAfter(deadline: .now() + 20) {
+                if proc.isRunning { proc.terminate() }
+            }
+
+            proc.waitUntilExit()
+
+            let data = out.fileHandleForReading.readDataToEndOfFile()
+            let text = String(data: data, encoding: .utf8) ?? ""
+            let lines = text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+            // 取最后一行非空、非 pnpm 进度/日志的输出作为版本号
+            let version = lines.last(where: {
+                !$0.isEmpty &&
+                !$0.hasPrefix("Packages:") &&
+                !$0.hasPrefix("Progress:") &&
+                !$0.hasPrefix("Done in")
+            })
+
+            DispatchQueue.main.async {
+                completion(version)
+            }
+        }
     }
 
     // MARK: 端口检测
@@ -463,6 +559,114 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         app.setActivationPolicy(.regular)  // 显示在 dock
         app.activate(ignoringOtherApps: true)
         app.run()
+    }
+}
+
+// ─── 自定义“关于”面板 ────────────────────────────────────────
+/// 无边框圆角毛玻璃面板：居中应用图标 + 版本文案，参照原 About 对话框保留“好”按钮
+final class AboutPanelController: NSObject {
+    private let panel: NSPanel
+    private let versionLabel: NSTextField
+    private let launcherVersion: String
+    private var eventMonitor: Any?
+
+    init(launcherVersion: String) {
+        self.launcherVersion = launcherVersion
+        versionLabel = NSTextField(labelWithString: "v\(launcherVersion)(dsh v获取中…)")
+
+        let content = NSVisualEffectView()
+        content.material = .popover
+        content.blendingMode = .behindWindow
+        content.state = .active
+        content.wantsLayer = true
+        content.layer?.cornerRadius = 14
+        content.layer?.masksToBounds = true
+
+        let panelSize = NSSize(width: 320, height: 240)
+        panel = NSPanel(contentRect: NSRect(origin: .zero, size: panelSize),
+                        styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered,
+                        defer: false)
+        panel.contentView = content
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.level = .floating
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = true  // 失焦自动隐藏
+
+        super.init()
+
+        // 应用图标（带 macOS 标准圆角比例）
+        let iconView = NSImageView()
+        iconView.image = NSApp.applicationIconImage
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        iconView.wantsLayer = true
+        let iconSize: CGFloat = 92
+        iconView.layer?.cornerRadius = iconSize * 0.2237
+        iconView.layer?.masksToBounds = true
+
+        // 应用标题
+        let titleLabel = NSTextField(labelWithString: "DeepSeek Harness")
+        titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
+        titleLabel.textColor = .labelColor
+        titleLabel.alignment = .center
+
+        // 版本文案：v<launcher>(dsh v<dsh>)，等宽数字便于与系统版本信息对齐
+        versionLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        versionLabel.textColor = .secondaryLabelColor
+        versionLabel.alignment = .center
+
+        let stack = NSStackView(views: [iconView, titleLabel, versionLabel])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 6
+        stack.setCustomSpacing(14, after: iconView)
+        stack.setCustomSpacing(10, after: titleLabel)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        // “好”按钮：回车可触发，点击关闭面板
+        let okButton = NSButton(title: "确定", target: self, action: #selector(okClicked(_:)))
+        okButton.bezelStyle = .rounded
+        okButton.keyEquivalent = "\r"
+        okButton.translatesAutoresizingMaskIntoConstraints = false
+
+        content.addSubview(stack)
+        content.addSubview(okButton)
+        NSLayoutConstraint.activate([
+            iconView.widthAnchor.constraint(equalToConstant: iconSize),
+            iconView.heightAnchor.constraint(equalToConstant: iconSize),
+            stack.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 24),
+            okButton.topAnchor.constraint(equalTo: stack.bottomAnchor, constant: 16),
+            okButton.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            okButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 100),
+        ])
+
+        panel.center()
+
+        // ESC 关闭
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53, self?.panel.isVisible == true {
+                self?.panel.close()
+                return nil
+            }
+            return event
+        }
+    }
+
+    func show() {
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// 刷新版本文案（主线程调用）
+    func setDSHVersion(_ version: String) {
+        versionLabel.stringValue = "v\(launcherVersion)(dsh v\(version))"
+    }
+
+    @objc private func okClicked(_ sender: Any?) {
+        panel.close()
     }
 }
 
