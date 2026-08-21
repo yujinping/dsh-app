@@ -2,11 +2,23 @@
 // 用途：为 macOS 12（Safari 15 引擎）等旧 WebKit 兜底缺失的现代 Web API。
 // 新增 polyfill 直接追加到此文件即可，无需改动 Swift 源码，重新构建自动打入 .app。
 //
+// ── 注入条件 ──────────────────────────────────────────────────────────
+// 本文件仅当 macOS < 14.4（Safari < 17.4）时由 Swift 端（dsh-app.swift）注入；
+// macOS 14.4+ 原生支持文件内全部 API，直接跳过注入，避免 JS 实现覆盖原生实现。
+// 基线 = 各 API 最低原生支持之最高者（Safari 17.4 / macOS 14.4）：
+//   AbortSignal.timeout  Safari 16.0+（macOS 13.0+）
+//   AbortSignal.any      Safari 17.4+（macOS 14.4+）
+//   crypto.randomUUID    Safari 15.4+（macOS 12.3+）
+//   lookbehind 正则      Safari 16.4+（macOS 13.3+）
+// 注意：苹果会把新版 Safari 回溯更新到旧系统（如 Safari 17.4 也更新到
+// macOS 12.7.5 / 13.6.6），所以注入后每个 polyfill 仍各自做能力检测，
+// 只有真正缺失时才生效——能力检测以运行时实际引擎为准，比 OS 版本更可靠。
+//
 // 背景：dsh 前端通信层（dsh-client-connection）的 postJson / mintRpcId 会调用
 // AbortSignal.timeout / AbortSignal.any / crypto.randomUUID，缺失时所有 API RPC 失败，
 // 依赖 RPC 的插件（如 session-log-export 的「Session log」按钮）不会被加载。
 
-// AbortSignal.timeout —— 原生支持需 Safari 16+ / Chrome 103+ / Firefox 100+
+// AbortSignal.timeout —— 原生支持需 Safari 16+（macOS 13.0+）/ Chrome 103+ / Firefox 100+
 if (typeof AbortSignal.timeout !== 'function') {
     AbortSignal.timeout = function (ms) {
         var controller = new AbortController();
@@ -17,7 +29,7 @@ if (typeof AbortSignal.timeout !== 'function') {
     };
 }
 
-// AbortSignal.any —— 原生支持需 Safari 17.4+ / Chrome 116+ / Firefox 117+
+// AbortSignal.any —— 原生支持需 Safari 17.4+（macOS 14.4+）/ Chrome 116+ / Firefox 117+
 // 组合多个 signal：任一中止则整体中止，reason 沿用首个中止的 signal
 if (typeof AbortSignal.any !== 'function') {
     AbortSignal.any = function (signals) {
@@ -37,7 +49,7 @@ if (typeof AbortSignal.any !== 'function') {
     };
 }
 
-// crypto.randomUUID —— 原生支持需 Safari 15.4+ / Chrome 92+ / Firefox 95+
+// crypto.randomUUID —— 原生支持需 Safari 15.4+（macOS 12.3+）/ Chrome 92+ / Firefox 95+
 // macOS 12 早期补丁（Safari 15.0–15.3）缺失；RPC 消息 id 生成依赖它
 if (typeof crypto !== 'undefined' && typeof crypto.randomUUID !== 'function') {
     crypto.randomUUID = function () {
@@ -49,7 +61,7 @@ if (typeof crypto !== 'undefined' && typeof crypto.randomUUID !== 'function') {
     };
 }
 
-// lookbehind 断言降级 —— 原生支持需 Safari 16.4+ / Chrome 62+ / Firefox 78+
+// lookbehind 断言降级 —— 原生支持需 Safari 16.4+（macOS 13.3+）/ Chrome 62+ / Firefox 78+
 // dsh 代码高亮库（highlight.js）的语言定义大量使用动态 lookbehind 正则
 // （new RegExp("(?<!...)")），旧引擎直接抛 SyntaxError，导致 conversation 插件
 // 崩溃、消息区与 session log 按钮等不显示。此处仅在不支持 lookbehind 的引擎上

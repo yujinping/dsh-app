@@ -66,7 +66,7 @@ dsh-app/
 ├── dsh-app.swift      # 主程序（WKWebView 内嵌窗口、进程管理与退出清理）
 ├── build-dsh-app.sh   # 一键构建脚本（图标 → 双架构编译 → bundle → 可选 DMG）
 ├── js/
-│   ├── polyfills.js       # Web API polyfill（编译时打入 .app，注入 WebView 供旧版 WebKit 兜底）
+│   ├── polyfills.js       # Web API polyfill（编译时打入 .app；仅 macOS < 14.4 / Safari < 17.4 时注入 WebView 兜底，14.4+ 原生已支持全部 API）
 │   └── console-bridge.js  # 页面 console 转发桥（页面内 JS 日志/报错 → App 日志，便于排查）
 ├── icon.icns          # 应用图标
 ├── dsh-app.app/       # 构建产物（运行脚本生成，已 gitignore）

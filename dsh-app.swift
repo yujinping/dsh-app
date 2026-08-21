@@ -93,9 +93,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
         config.websiteDataStore = .default()  // 持久化存储，保留登录态等
 
         // 注入 Web API polyfill（资源文件 polyfills.js，旧版 WebKit 兜底；新增 polyfill 无需改 Swift）
-        // 资源缺失时降级为不注入：新版 macOS 本身支持这些 API，不影响正常使用
-        if let polyfillURL = Bundle.main.url(forResource: "polyfills", withExtension: "js", subdirectory: "js"),
-           let polyfillJS = try? String(contentsOf: polyfillURL, encoding: .utf8) {
+        // 注入条件：仅当 macOS < 14.4（Safari < 17.4）时注入。
+        // 基线 = polyfills.js 内全部 API 最低原生支持之最高者：
+        //   AbortSignal.timeout Safari 16.0 / AbortSignal.any Safari 17.4 /
+        //   lookbehind Safari 16.4 / crypto.randomUUID Safari 15.4 → 最高 Safari 17.4 = macOS 14.4
+        // macOS 14.4+ 原生支持全部 API，跳过注入，避免 JS 实现覆盖原生实现。
+        // 文件内每个 polyfill 仍保留能力检测（typeof/语法探测），
+        // 兼容拿到 Safari 17.4 回溯更新的 macOS 12/13 老系统；资源缺失时降级为不注入。
+        let polyfillMinOS = OperatingSystemVersion(majorVersion: 14, minorVersion: 4, patchVersion: 0)
+        if ProcessInfo.processInfo.isOperatingSystemAtLeast(polyfillMinOS) {
+            logToFile("macOS 14.4+（Safari 17.4+）原生支持全部 Web API，跳过 polyfill 注入")
+        } else if let polyfillURL = Bundle.main.url(forResource: "polyfills", withExtension: "js", subdirectory: "js"),
+                  let polyfillJS = try? String(contentsOf: polyfillURL, encoding: .utf8) {
             config.userContentController.addUserScript(
                 WKUserScript(source: polyfillJS,
                              injectionTime: .atDocumentStart,
